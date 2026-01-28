@@ -1,7 +1,7 @@
 
   # Telemetry Data Dashboard
 
-  This is a code bundle for Telemetry Data Dashboard. The original project is available at https://www.figma.com/design/vWv63B9qPb1d0K5N92ujlz/Telemetry-Data-Dashboard.
+  This is the frontend for my project VeriOps: An Agent Observability and Monitorability Framework.
 
 ## Frontend env vars
 
