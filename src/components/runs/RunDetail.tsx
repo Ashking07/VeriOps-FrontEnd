@@ -180,7 +180,8 @@ const ValidateModal: React.FC<ValidateModalProps> = ({
                 <textarea
                   value={yaml}
                   onChange={(event) => setYaml(event.target.value)}
-                  className={`w-full h-56 rounded-xl p-4 border font-mono text-[11px] leading-relaxed resize-none ${
+                  style={{ height: "320px" }}
+                  className={`w-full rounded-xl p-4 border font-mono text-[11px] leading-relaxed resize-none ${
                     isDark ? "bg-zinc-900 border-zinc-800 text-blue-400/90" : "bg-zinc-50 border-zinc-200 text-blue-600/90"
                   }`}
                 />
