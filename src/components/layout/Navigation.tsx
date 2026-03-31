@@ -7,17 +7,22 @@ import {
   ChevronDown,
   Menu,
   LayoutDashboard,
+  FolderKanban,
   CirclePlay,
   ShieldCheck,
   Terminal,
   Settings,
+  LogOut,
 } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { StatusPill } from "../ui/StatusPill";
 import { CopyButton } from "../ui/CopyButton";
 import { getHealth, getProjects, Project } from "../../lib/api";
 import { DATE_RANGE_LABELS, useAppStore } from "../../store/appStore";
+import { logout } from "../../lib/auth";
+import { resolveSelectedProjectId } from "./projectSelection";
 
 // --- Sidebar ---
 type SidebarProps = {
@@ -29,6 +34,7 @@ type SidebarProps = {
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, theme }) => {
   const navItems = [
     { id: "overview", label: "Overview", icon: LayoutDashboard, path: "/overview" },
+    { id: "projects", label: "Projects", icon: FolderKanban, path: "/projects" },
     { id: "runs", label: "Runs", icon: CirclePlay, path: "/runs" },
     { id: "policies", label: "Policies", icon: ShieldCheck, path: "/policies" },
     { id: "ingest", label: "Ingest", icon: Terminal, path: "/ingest" },
@@ -63,7 +69,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, theme }) =>
             {navItems.map((item) => {
               const isActive =
                 location.pathname === item.path ||
-                (item.path === "/runs" && location.pathname.startsWith("/runs/"));
+                (item.path === "/runs" && location.pathname.startsWith("/runs/")) ||
+                (item.path === "/projects" && location.pathname.startsWith("/projects/"));
               return (
               <button
                 key={item.id}
@@ -125,6 +132,7 @@ const maskKey = (key: string) => {
 
 export const TopBar: React.FC<TopBarProps> = ({ toggleSidebar, theme, toggleTheme }) => {
   const isDark = theme === "dark";
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchQuery = searchParams.get("q") ?? "";
   const { selectedProjectId, setSelectedProjectId, dateRange, setDateRange } =
@@ -141,8 +149,9 @@ export const TopBar: React.FC<TopBarProps> = ({ toggleSidebar, theme, toggleThem
   });
 
   useEffect(() => {
-    if (!selectedProjectId && projects.length > 0) {
-      setSelectedProjectId(projects[0].id);
+    const nextSelectedProjectId = resolveSelectedProjectId(projects, selectedProjectId);
+    if (nextSelectedProjectId !== selectedProjectId) {
+      setSelectedProjectId(nextSelectedProjectId);
     }
   }, [projects, selectedProjectId, setSelectedProjectId]);
 
@@ -252,6 +261,26 @@ export const TopBar: React.FC<TopBarProps> = ({ toggleSidebar, theme, toggleThem
           }`}
         >
           {isDark ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
+
+        <button
+          onClick={async () => {
+            const result = await logout();
+            if (!result.serverSessionCleared) {
+              toast.warning(
+                "Server session may still be active. Backend should clear auth cookies on logout."
+              );
+            }
+            navigate("/login", { replace: true });
+          }}
+          className={`p-2 rounded-lg border transition-all ${
+            isDark
+              ? "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white"
+              : "bg-zinc-100 border-zinc-200 text-zinc-500 hover:text-zinc-900"
+          }`}
+          aria-label="Log out"
+        >
+          <LogOut size={16} />
         </button>
 
         <div className={`hidden xl:flex items-center gap-3 pr-4 border-r ${isDark ? 'border-zinc-800' : 'border-zinc-200'}`}>

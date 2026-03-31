@@ -6,8 +6,63 @@ export type HealthResponse = {
 export type Project = {
   id: string;
   name: string;
+  org_id?: string;
   description?: string;
   created_at?: string;
+};
+
+export type Membership = {
+  user_id: string;
+  email?: string;
+  username?: string;
+  role?: MembershipRole;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type MembershipRole = "owner" | "admin" | "member" | "viewer";
+
+export type OrgRole = "owner" | "admin" | "member" | "viewer";
+
+export type MembershipsResponse = {
+  memberships: Membership[];
+  can_manage_memberships?: boolean;
+  permissions?: string[];
+  capabilities?: {
+    manage_memberships?: boolean;
+  };
+};
+
+export type CreateOrgUserInput = {
+  email: string;
+  password: string;
+  username?: string;
+  org_role: OrgRole;
+  has_minimal_access: boolean;
+};
+
+export type CreateOrgUserResponse = {
+  user_id: string;
+};
+
+export type ApiKey = {
+  id: string;
+  name: string;
+  key_prefix?: string;
+  created_at?: string;
+  last_used_at?: string | null;
+  revoked_at?: string | null;
+};
+
+export type ApiKeysResponse = {
+  api_keys: ApiKey[];
+  can_manage_api_keys?: boolean;
+  permissions?: string[];
+};
+
+export type ApiKeySecretResponse = {
+  id?: string;
+  api_key: string;
 };
 
 export type ProjectSummary = {
@@ -170,6 +225,8 @@ export type IngestEventsResponse = {
 
 type ApiErrorBody = Record<string, unknown> | string | null;
 
+import { getAccessToken, withAuthRetry } from "./auth";
+
 export class ApiError extends Error {
   status: number;
   body: ApiErrorBody;
@@ -227,9 +284,133 @@ const coerceProject = (value: unknown): Project | null => {
   return {
     id,
     name: name ?? id,
+    org_id:
+      (value.org_id ??
+        value.organization_id ??
+        value.orgId ??
+        (isRecord(value.organization) ? value.organization.id : undefined)) as
+        | string
+        | undefined,
     description: value.description as string | undefined,
     created_at: value.created_at as string | undefined,
   };
+};
+
+const normalizeMembershipsResponse = (data: unknown): MembershipsResponse => {
+  const toMembership = (item: unknown): Membership | null => {
+    if (!isRecord(item)) {
+      return null;
+    }
+    const nestedUser = isRecord(item.user) ? item.user : null;
+    const userId = (item.user_id ?? item.userId ?? item.id) as string | undefined;
+    if (!userId) {
+      return null;
+    }
+    return {
+      user_id: userId,
+      email: (item.email ?? (nestedUser ? nestedUser.email : undefined)) as string | undefined,
+      username: (item.username ?? item.name ?? (nestedUser ? nestedUser.username : undefined)) as
+        | string
+        | undefined,
+      role: item.role as MembershipRole | undefined,
+      created_at: (item.created_at ?? item.joined_at) as string | undefined,
+      updated_at: item.updated_at as string | undefined,
+    };
+  };
+
+  if (Array.isArray(data)) {
+    return {
+      memberships: data
+        .map((item) => toMembership(item))
+        .filter((item): item is Membership => item !== null),
+    };
+  }
+
+  if (isRecord(data)) {
+    const list = (data.memberships ?? data.items ?? data.data ?? data.results) as
+      | unknown[]
+      | undefined;
+    return {
+      memberships: Array.isArray(list)
+        ? list
+            .map((item) => toMembership(item))
+            .filter((item): item is Membership => item !== null)
+        : [],
+      can_manage_memberships:
+        (data.can_manage_memberships as boolean | undefined) ??
+        (isRecord(data.capabilities)
+          ? (data.capabilities.manage_memberships as boolean | undefined)
+          : undefined),
+      permissions: Array.isArray(data.permissions)
+        ? (data.permissions.filter((value): value is string => typeof value === "string") as
+            | string[]
+            | undefined)
+        : undefined,
+      capabilities: isRecord(data.capabilities)
+        ? {
+            manage_memberships: data.capabilities.manage_memberships as boolean | undefined,
+          }
+        : undefined,
+    };
+  }
+
+  return { memberships: [] };
+};
+
+const normalizeApiKeysResponse = (data: unknown): ApiKeysResponse => {
+  const toApiKey = (item: unknown): ApiKey | null => {
+    if (!isRecord(item)) {
+      return null;
+    }
+    const id = (item.id ?? item.key_id) as string | undefined;
+    const name = (item.name ?? item.label ?? id) as string | undefined;
+    if (!id || !name) {
+      return null;
+    }
+
+    return {
+      id,
+      name,
+      key_prefix: (item.key_prefix ?? item.prefix) as string | undefined,
+      created_at: item.created_at as string | undefined,
+      last_used_at: (item.last_used_at as string | null | undefined) ?? null,
+      revoked_at: (item.revoked_at as string | null | undefined) ?? null,
+    };
+  };
+
+  if (Array.isArray(data)) {
+    return {
+      api_keys: data
+        .map((item) => toApiKey(item))
+        .filter((item): item is ApiKey => item !== null),
+    };
+  }
+
+  if (isRecord(data)) {
+    const list = (data.api_keys ?? data.keys ?? data.items ?? data.data ?? data.results) as
+      | unknown[]
+      | undefined;
+
+    return {
+      api_keys: Array.isArray(list)
+        ? list
+            .map((item) => toApiKey(item))
+            .filter((item): item is ApiKey => item !== null)
+        : [],
+      can_manage_api_keys:
+        (data.can_manage_api_keys as boolean | undefined) ??
+        (isRecord(data.capabilities)
+          ? (data.capabilities.manage_api_keys as boolean | undefined)
+          : undefined),
+      permissions: Array.isArray(data.permissions)
+        ? (data.permissions.filter((value): value is string => typeof value === "string") as
+            | string[]
+            | undefined)
+        : undefined,
+    };
+  }
+
+  return { api_keys: [] };
 };
 
 const normalizeProjects = (data: unknown): Project[] => {
@@ -344,16 +525,24 @@ const apiFetch = async <T>(
   init?: RequestInit,
   options?: { includeApiKey?: boolean }
 ): Promise<T> => {
-  const headers = new Headers(init?.headers);
-  headers.set("Content-Type", "application/json");
   const includeApiKey = options?.includeApiKey ?? true;
-  if (includeApiKey && API_KEY) {
-    headers.set("x-api-key", API_KEY);
-  }
 
-  const response = await fetch(buildUrl(path), {
-    ...init,
-    headers,
+  const response = await withAuthRetry((accessToken) => {
+    const headers = new Headers(init?.headers);
+    headers.set("Content-Type", "application/json");
+    if (includeApiKey && API_KEY) {
+      headers.set("x-api-key", API_KEY);
+    }
+    const bearerToken = accessToken ?? getAccessToken();
+    if (bearerToken) {
+      headers.set("Authorization", `Bearer ${bearerToken}`);
+    }
+
+    return fetch(buildUrl(path), {
+      ...init,
+      headers,
+      credentials: "include",
+    });
   });
 
   const body = (await parseResponseBody(response)) as ApiErrorBody;
@@ -363,6 +552,9 @@ const apiFetch = async <T>(
   }
   return body as T;
 };
+
+export const authApiRequest = <T>(path: string, init?: RequestInit) =>
+  apiFetch<T>(path, init, { includeApiKey: true });
 
 export const getHealth = () =>
   apiFetch<HealthResponse>("/health", undefined, {
@@ -416,4 +608,80 @@ export const ingestEvents = (body: IngestRequest) =>
   apiFetch<IngestEventsResponse>("/v1/events", {
     method: "POST",
     body: JSON.stringify(body),
+  });
+
+export const getOrgMemberships = async (orgId: string) => {
+  const data = await authApiRequest<unknown>(`/v1/orgs/${orgId}/memberships`);
+  return normalizeMembershipsResponse(data);
+};
+
+export const updateOrgMembership = (orgId: string, userId: string, role: string) =>
+  authApiRequest<void>(`/v1/orgs/${orgId}/memberships/${userId}`, {
+    method: "PUT",
+    body: JSON.stringify({ role }),
+  });
+
+export const deleteOrgMembership = (orgId: string, userId: string) =>
+  authApiRequest<void>(`/v1/orgs/${orgId}/memberships/${userId}`, {
+    method: "DELETE",
+  });
+
+export const getProjectMemberships = async (projectId: string) => {
+  const data = await authApiRequest<unknown>(`/v1/projects/${projectId}/memberships`);
+  return normalizeMembershipsResponse(data);
+};
+
+export const updateProjectMembership = (projectId: string, userId: string, role: string) =>
+  authApiRequest<void>(`/v1/projects/${projectId}/memberships/${userId}`, {
+    method: "PUT",
+    body: JSON.stringify({ user_id: userId, role }),
+  });
+
+export const deleteProjectMembership = (projectId: string, userId: string) =>
+  authApiRequest<void>(`/v1/projects/${projectId}/memberships/${userId}`, {
+    method: "DELETE",
+  });
+
+export const createOrgUser = async (orgId: string, body: CreateOrgUserInput) => {
+  const data = await authApiRequest<unknown>(`/v1/orgs/${orgId}/users`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+  if (isRecord(data)) {
+    const userId =
+      (data.user_id as string | undefined) ??
+      (data.id as string | undefined) ??
+      (isRecord(data.user) ? (data.user.id as string | undefined) : undefined);
+    if (userId) {
+      return { user_id: userId } satisfies CreateOrgUserResponse;
+    }
+  }
+
+  throw new ApiError("API request failed (invalid create user response)", 500, data as ApiErrorBody);
+};
+
+export const getProjectApiKeys = async (projectId: string, includeRevoked = false) => {
+  const data = await authApiRequest<unknown>(
+    `/v1/projects/${projectId}/api-keys?include_revoked=${includeRevoked ? "true" : "false"}`
+  );
+  return normalizeApiKeysResponse(data);
+};
+
+export const createProjectApiKey = (projectId: string, name: string) =>
+  authApiRequest<ApiKeySecretResponse>(`/v1/projects/${projectId}/api-keys`, {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+
+export const rotateApiKey = (keyId: string, name?: string) =>
+  authApiRequest<ApiKeySecretResponse>(`/v1/api-keys/${keyId}/rotate`, {
+    method: "POST",
+    body: JSON.stringify(name ? { name } : {}),
+  });
+
+export const revokeApiKey = (keyId: string, reason?: string) =>
+  authApiRequest<void>(`/v1/api-keys/${keyId}/revoke`, {
+    method: "POST",
+    body: JSON.stringify(reason ? { reason } : {}),
   });

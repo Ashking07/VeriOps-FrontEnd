@@ -12,7 +12,10 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { StatusPill } from "../ui/StatusPill";
 import { CopyButton } from "../ui/CopyButton";
-import { getHealth } from "../../lib/api";
+import { getHealth, getProjects } from "../../lib/api";
+import { useAppStore } from "../../store/appStore";
+import { ProjectUserManagementSection } from "./ProjectUserManagementSection";
+import { resolveSelectedProjectOrgContext } from "./settingsProjectContext";
 
 type SettingsPageProps = {
   theme: "dark" | "light";
@@ -24,6 +27,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ theme }) => {
     "https://staging.veriops.dev",
   ]);
   const isDark = theme === "dark";
+  const { selectedProjectId } = useAppStore();
 
   const env = import.meta.env as Record<string, string | boolean | undefined>;
   const apiBaseUrl =
@@ -49,12 +53,60 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ theme }) => {
     },
   });
 
+  const projectsQuery = useQuery({
+    queryKey: ["projects"],
+    queryFn: getProjects,
+  });
+
+  const selectedProjectContext = resolveSelectedProjectOrgContext(
+    projectsQuery.data,
+    selectedProjectId
+  );
+
   return (
     <div className="max-w-4xl mx-auto space-y-12">
       <div>
         <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-zinc-900'}`}>Settings</h1>
         <p className="text-zinc-500 text-sm mt-1">Manage project API keys, security, and environment configurations.</p>
       </div>
+
+      {!selectedProjectId ? (
+        <div
+          className={`border rounded-xl p-4 text-sm ${
+            isDark
+              ? "bg-zinc-900 border-zinc-800 text-zinc-300"
+              : "bg-white border-zinc-200 text-zinc-700"
+          }`}
+        >
+          Select a project from the top bar to manage users.
+        </div>
+      ) : projectsQuery.isLoading ? (
+        <div
+          className={`border rounded-xl p-4 text-sm ${
+            isDark
+              ? "bg-zinc-900 border-zinc-800 text-zinc-300"
+              : "bg-white border-zinc-200 text-zinc-700"
+          }`}
+        >
+          Resolving selected project context...
+        </div>
+      ) : !selectedProjectContext ? (
+        <div
+          className={`border rounded-xl p-4 text-sm ${
+            isDark
+              ? "bg-zinc-900 border-zinc-800 text-zinc-300"
+              : "bg-white border-zinc-200 text-zinc-700"
+          }`}
+        >
+          Unable to resolve organization for selected project.
+        </div>
+      ) : (
+        <ProjectUserManagementSection
+          theme={theme}
+          projectId={selectedProjectContext.projectId}
+          orgId={selectedProjectContext.orgId}
+        />
+      )}
 
       <section className="space-y-6">
         <div className="flex items-center gap-3">
