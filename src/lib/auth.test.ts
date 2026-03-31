@@ -199,15 +199,35 @@ describe("google auth flow", () => {
     );
   });
 
+  it("treats callback auth_error query as login failure", async () => {
+    globalThis.fetch = vi.fn() as unknown as typeof fetch;
+
+    await expect(completeGoogleCallback("?auth_error=access_denied")).rejects.toMatchObject({
+      status: 401,
+      message: expect.stringContaining("Google sign-in failed"),
+    });
+
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   it("marks session authenticated from cookie probe when no refresh token exists", async () => {
-    globalThis.fetch = vi
+    const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ projects: [] }, 200)) as unknown as typeof fetch;
+    globalThis.fetch = fetchMock;
 
     await initializeAuth();
 
+    const probeInit =
+      (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as
+        | RequestInit
+        | undefined;
+
     expect(getAuthSnapshot().isInitialized).toBe(true);
     expect(getAuthSnapshot().isAuthenticated).toBe(true);
+    expect(probeInit).toEqual(expect.objectContaining({ credentials: "include" }));
+    expect(new Headers(probeInit?.headers).get("Authorization")).toBeNull();
+    expect(new Headers(probeInit?.headers).get("x-api-key")).toBeNull();
   });
 
   it("keeps session unauthenticated when cookie probe returns 401", async () => {
@@ -219,20 +239,6 @@ describe("google auth flow", () => {
 
     expect(getAuthSnapshot().isInitialized).toBe(true);
     expect(getAuthSnapshot().isAuthenticated).toBe(false);
-
-    const probeRequest = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1];
-    expect(probeRequest).toEqual(
-      expect.objectContaining({
-        method: "GET",
-        credentials: "include",
-      })
-    );
-
-    const probeHeaders = (probeRequest as RequestInit).headers as Headers | undefined;
-    if (probeHeaders instanceof Headers) {
-      expect(probeHeaders.has("authorization")).toBe(false);
-      expect(probeHeaders.has("x-api-key")).toBe(false);
-    }
   });
 });
 
@@ -252,7 +258,7 @@ describe("logout behavior", () => {
     vi.restoreAllMocks();
   });
 
-  it("uses server_session_revoked=true from logout response", async () => {
+  it("uses direct backend logout with token payload when present", async () => {
     __authTestUtils.setSession({
       access_token: "access-token",
       refresh_token: "refresh-token",
@@ -260,45 +266,49 @@ describe("logout behavior", () => {
       expires_at: Date.now() + 60_000,
     });
 
-    globalThis.fetch = vi
+    const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(
-        jsonResponse({ server_session_revoked: true }, 200)
-      ) as unknown as typeof fetch;
+      .mockResolvedValueOnce(jsonResponse({ server_session_revoked: true }, 200)) as unknown as typeof fetch;
+    globalThis.fetch = fetchMock;
+
+    const result = await logout();
+    const [logoutUrl, logoutInit] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    const logoutHeaders = new Headers(logoutInit.headers);
+
+    expect(result.serverSessionCleared).toBe(true);
+    expect(getAuthSnapshot().isAuthenticated).toBe(false);
+    expect(logoutUrl).toContain("http://localhost:8000/v1/auth/logout");
+    expect(logoutInit).toEqual(expect.objectContaining({ method: "POST", credentials: "include" }));
+    expect(logoutHeaders.get("Authorization")).toBe("Bearer access-token");
+    expect(JSON.parse(String(logoutInit.body))).toEqual({
+      access_token: "access-token",
+      refresh_token: "refresh-token",
+    });
+  });
+
+  it("falls back to cookie probe when logout response has no revocation flag", async () => {
+    __authTestUtils.setSession({
+      access_token: "access-token",
+      refresh_token: "refresh-token",
+      token_type: "bearer",
+      expires_at: Date.now() + 60_000,
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(jsonResponse({ detail: "unauthorized" }, 401)) as unknown as typeof fetch;
+    globalThis.fetch = fetchMock;
 
     const result = await logout();
 
     expect(result.serverSessionCleared).toBe(true);
-    expect(result.serverSessionRevoked).toBe(true);
     expect(getAuthSnapshot().isAuthenticated).toBe(false);
-
-    const requestInit = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1];
-    expect(requestInit).toEqual(
-      expect.objectContaining({
-        method: "POST",
-        credentials: "include",
-      })
+    expect((fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[1][0]).toEqual(
+      expect.stringContaining("/v1/projects")
     );
-    expect(String((requestInit as RequestInit).body)).toContain("refresh_token");
-  });
-
-  it("probes cookie session when server_session_revoked is false", async () => {
-    __authTestUtils.setSession({
-      access_token: "access-token",
-      refresh_token: "refresh-token",
-      token_type: "bearer",
-      expires_at: Date.now() + 60_000,
-    });
-
-    globalThis.fetch = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse({ server_session_revoked: false }, 200))
-      .mockResolvedValueOnce(jsonResponse({ projects: [] }, 200)) as unknown as typeof fetch;
-
-    const result = await logout();
-
-    expect(result.serverSessionCleared).toBe(false);
-    expect(getAuthSnapshot().isAuthenticated).toBe(false);
-    expect((globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2);
   });
 });

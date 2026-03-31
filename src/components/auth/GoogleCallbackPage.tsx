@@ -15,15 +15,6 @@ export const GoogleCallbackPage: React.FC<GoogleCallbackPageProps> = ({ theme })
     let cancelled = false;
 
     const run = async () => {
-      const params = new URLSearchParams(window.location.search);
-      const callbackError = params.get("auth_error");
-      if (callbackError) {
-        setError(
-          `Google sign-in failed: ${decodeURIComponent(callbackError).replace(/_/g, " ")}`
-        );
-        return;
-      }
-
       try {
         await completeGoogleCallback(window.location.search);
         if (!cancelled) {

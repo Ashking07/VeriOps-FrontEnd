@@ -16,10 +16,6 @@ type AuthSnapshot = {
 
 type JsonBody = Record<string, unknown> | string | null;
 
-type LogoutOut = {
-  server_session_revoked?: boolean;
-};
-
 export class AuthApiError extends Error {
   status: number;
   body: JsonBody;
@@ -65,6 +61,27 @@ const API_BASE_URL =
     ? "/api"
     : RAW_API_BASE_URL;
 
+const DEFAULT_AUTH_SERVER_BASE_URL =
+  RAW_API_BASE_URL.startsWith("http://") || RAW_API_BASE_URL.startsWith("https://")
+    ? RAW_API_BASE_URL
+    : "http://localhost:8000";
+
+const AUTH_SERVER_BASE_URL =
+  (
+    (env.VITE_AUTH_SERVER_BASE_URL as string | undefined) ??
+    (env.NEXT_PUBLIC_AUTH_SERVER_BASE_URL as string | undefined) ??
+    DEFAULT_AUTH_SERVER_BASE_URL
+  ).replace(/\/$/, "");
+
+const GOOGLE_CALLBACK_MODE =
+  (
+    (env.VITE_GOOGLE_CALLBACK_MODE as string | undefined) ??
+    (env.NEXT_PUBLIC_GOOGLE_CALLBACK_MODE as string | undefined) ??
+    ""
+  )
+    .trim()
+    .toLowerCase();
+
 const emit = () => {
   listeners.forEach((listener) => listener());
 };
@@ -96,14 +113,11 @@ const buildUrl = (path: string): string => {
   return new URL(path, API_BASE_URL).toString();
 };
 
-const buildBackendUrl = (path: string): string => {
+const buildAuthServerUrl = (path: string): string => {
   if (path.startsWith("http://") || path.startsWith("https://")) {
     return path;
   }
-  if (RAW_API_BASE_URL) {
-    return new URL(path, RAW_API_BASE_URL).toString();
-  }
-  return buildUrl(path);
+  return new URL(path, `${AUTH_SERVER_BASE_URL}/`).toString();
 };
 
 const parseResponseBody = async (response: Response): Promise<JsonBody> => {
@@ -136,6 +150,32 @@ const pickErrorMessage = (status: number, body: JsonBody) => {
     return body;
   }
   return `Auth request failed (${status})`;
+};
+
+const decodeAuthError = (value: string) => {
+  try {
+    return decodeURIComponent(value).replace(/_/g, " ");
+  } catch {
+    return value.replace(/_/g, " ");
+  }
+};
+
+const isTokenOutBody = (body: JsonBody): body is TokenOut =>
+  !!body &&
+  typeof body === "object" &&
+  typeof (body as Record<string, unknown>).access_token === "string" &&
+  typeof (body as Record<string, unknown>).refresh_token === "string" &&
+  typeof (body as Record<string, unknown>).expires_at !== "undefined";
+
+const parseServerSessionRevoked = (body: JsonBody): boolean | null => {
+  if (!body || typeof body !== "object") {
+    return null;
+  }
+  const value = (body as Record<string, unknown>).server_session_revoked;
+  if (typeof value === "boolean") {
+    return value;
+  }
+  return null;
 };
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
@@ -261,16 +301,31 @@ export const beginGoogleLogin = () => {
     return;
   }
 
-  window.location.assign(buildUrl("/v1/auth/google/login"));
+  const loginUrl = new URL(buildAuthServerUrl("/v1/auth/google/login"));
+  if (GOOGLE_CALLBACK_MODE === "json") {
+    loginUrl.searchParams.set("mode", "json");
+  }
+
+  window.location.assign(loginUrl.toString());
 };
 
 export const completeGoogleCallback = async (search: string) => {
   const query = search?.startsWith("?") ? search : search ? `?${search}` : "";
-  const response = await fetch(buildUrl(`/v1/auth/google/callback${query}`), {
+  const queryParams = new URLSearchParams(query.startsWith("?") ? query.slice(1) : query);
+  const authError = queryParams.get("auth_error");
+  if (authError) {
+    throw new AuthApiError(
+      `Google sign-in failed: ${decodeAuthError(authError)}`,
+      401,
+      { auth_error: authError }
+    );
+  }
+
+  const response = await fetch(buildAuthServerUrl(`/v1/auth/google/callback${query}`), {
     method: "GET",
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      Accept: "application/json",
     },
   });
 
@@ -283,14 +338,8 @@ export const completeGoogleCallback = async (search: string) => {
     );
   }
 
-  if (
-    body &&
-    typeof body === "object" &&
-    typeof (body as Record<string, unknown>).access_token === "string" &&
-    typeof (body as Record<string, unknown>).refresh_token === "string" &&
-    typeof (body as Record<string, unknown>).expires_at !== "undefined"
-  ) {
-    setSession(body as unknown as TokenOut);
+  if (isTokenOutBody(body)) {
+    setSession(body);
   } else {
     const hasCookieSession = await probeCookieSession();
     if (!hasCookieSession) {
@@ -381,77 +430,52 @@ export const refreshIfExpiringSoon = async () => {
   return refreshSession();
 };
 
-export const logout = async (): Promise<{
-  serverSessionCleared: boolean;
-  serverSessionRevoked: boolean;
-}> => {
+export const logout = async (): Promise<{ serverSessionCleared: boolean }> => {
   const token = getAccessToken();
   const refreshToken = getStoredRefreshToken();
+  const payload: Record<string, string> = {};
+  if (token) {
+    payload.access_token = token;
+  }
+  if (refreshToken) {
+    payload.refresh_token = refreshToken;
+  }
+
   let serverSessionCleared = false;
 
   try {
-    const logoutPayload: Record<string, string> = {};
-    if (token) {
-      logoutPayload.access_token = token;
-      logoutPayload.accessToken = token;
-    }
-    if (refreshToken) {
-      logoutPayload.refresh_token = refreshToken;
-      logoutPayload.refreshToken = refreshToken;
-    }
-
     const headers = new Headers();
     headers.set("Content-Type", "application/json");
     if (token) {
       headers.set("Authorization", `Bearer ${token}`);
     }
 
-    const logoutRequestInit: RequestInit = {
+    const response = await fetch(buildAuthServerUrl("/v1/auth/logout"), {
       method: "POST",
-      credentials: "include",
       headers,
-      body: JSON.stringify(logoutPayload),
-    };
+      credentials: "include",
+      body: JSON.stringify(payload),
+    });
 
-    let logoutResult: LogoutOut;
-
-    try {
-      const response = await fetch(buildBackendUrl("/v1/auth/logout"), logoutRequestInit);
-      const body = await parseResponseBody(response);
-      if (!response.ok) {
-        throw new AuthApiError(
-          pickErrorMessage(response.status, body),
-          response.status,
-          body
-        );
-      }
-      logoutResult = body as LogoutOut;
-    } catch {
-      // Fallback for deployments where direct backend origin is not reachable from the browser.
-      logoutResult = await authRequest<LogoutOut>("/v1/auth/logout", {
-        method: "POST",
-        headers,
-        body: JSON.stringify(logoutPayload),
-      });
+    const body = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new AuthApiError(pickErrorMessage(response.status, body), response.status, body);
     }
 
-    serverSessionCleared = Boolean(logoutResult?.server_session_revoked);
-
-    // Backward-compatible fallback for older backend behavior.
-    if (!serverSessionCleared) {
+    const reportedServerState = parseServerSessionRevoked(body);
+    if (reportedServerState === null) {
       serverSessionCleared = !(await probeCookieSession());
+    } else {
+      serverSessionCleared = reportedServerState;
     }
-
   } catch {
     serverSessionCleared = false;
   } finally {
+    initialized = true;
     clearSession();
   }
 
-  return {
-    serverSessionCleared,
-    serverSessionRevoked: serverSessionCleared,
-  };
+  return { serverSessionCleared };
 };
 
 export const withAuthRetry = async (

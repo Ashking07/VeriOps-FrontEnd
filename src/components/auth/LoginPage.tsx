@@ -44,11 +44,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme }) => {
     beginGoogleLogin();
   };
 
+  const formatCallbackError = (value: string) => {
+    try {
+      return decodeURIComponent(value).replace(/_/g, " ");
+    } catch {
+      return value.replace(/_/g, " ");
+    }
+  };
+
   const callbackError = searchParams.get("auth_error");
   const displayError =
     error ??
     (callbackError
-      ? `Google sign-in failed: ${decodeURIComponent(callbackError).replace(/_/g, " ")}`
+      ? `Google sign-in failed: ${formatCallbackError(callbackError)}`
       : null);
 
   return (
