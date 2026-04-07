@@ -214,6 +214,34 @@ export type IngestRequest = {
   events: Event[];
 };
 
+export type BudgetThreshold = "OK" | "WARNING" | "CRITICAL" | "HARD_STOP";
+
+export type BudgetEvent = {
+  id?: string;
+  threshold?: BudgetThreshold;
+  triggered_at?: string;
+  tokens_used?: number;
+  cost_used_usd?: number;
+  message?: string;
+};
+
+export type RunBudget = {
+  run_id?: string;
+  token_budget?: number | null;
+  cost_budget_usd?: number | null;
+  webhook_url?: string | null;
+  tokens_used?: number;
+  cost_used_usd?: number;
+  threshold?: BudgetThreshold;
+  budget_events?: BudgetEvent[];
+};
+
+export type SetRunBudgetInput = {
+  token_budget?: number;
+  cost_budget_usd?: number;
+  webhook_url?: string;
+};
+
 export type IngestEventsResponse = {
   status?: number | string;
   ingested?: number | boolean;
@@ -684,4 +712,13 @@ export const revokeApiKey = (keyId: string, reason?: string) =>
   authApiRequest<void>(`/v1/api-keys/${keyId}/revoke`, {
     method: "POST",
     body: JSON.stringify(reason ? { reason } : {}),
+  });
+
+export const getRunBudget = (runId: string) =>
+  apiFetch<RunBudget>(`/v1/runs/${runId}/budget`);
+
+export const setRunBudget = (runId: string, body: SetRunBudgetInput) =>
+  apiFetch<RunBudget>(`/v1/runs/${runId}/budget`, {
+    method: "POST",
+    body: JSON.stringify(body),
   });

@@ -23,9 +23,14 @@ import {
   getRun,
   getRunValidations,
   validateRun,
+  getRunBudget,
   RunStep,
   RunValidation,
+  ApiError,
 } from "../../lib/api";
+import { BudgetStatusBadge } from "./BudgetStatusBadge";
+import { BudgetProgressBar } from "./BudgetProgressBar";
+import { BudgetInitForm } from "./BudgetInitForm";
 import { useAppStore } from "../../store/appStore";
 
 type PolicyOption = {
@@ -326,6 +331,18 @@ export const RunDetail: React.FC<RunDetailProps> = ({ theme }) => {
     enabled: !!runId,
   });
 
+  const budgetQuery = useQuery({
+    queryKey: ["run-budget", runId],
+    queryFn: () => getRunBudget(runId ?? ""),
+    enabled: !!runId,
+    retry: (failureCount, error) => {
+      if (error instanceof ApiError && error.status === 404) return false;
+      return failureCount < 2;
+    },
+  });
+  const hasBudget = !budgetQuery.isError && !!budgetQuery.data;
+  const noBudget = budgetQuery.isError && budgetQuery.error instanceof ApiError && budgetQuery.error.status === 404;
+
   const validateMutation = useMutation({
     mutationFn: (yaml: string) => validateRun(runId ?? "", yaml),
     onSuccess: () => {
@@ -520,8 +537,8 @@ export const RunDetail: React.FC<RunDetailProps> = ({ theme }) => {
         </div>
 
         {/* Validation Sidebar */}
-        <div className="space-y-4">
-          <div className={`border rounded-2xl p-6 sticky top-20 transition-all ${
+        <div className="space-y-4 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:sticky lg:top-20">
+          <div className={`border rounded-2xl p-6 transition-all ${
             isDark ? 'bg-zinc-900/50 border-zinc-800/50' : 'bg-white border-zinc-200 shadow-sm'
           }`}>
             <div className="flex items-center justify-between mb-6">
@@ -595,6 +612,46 @@ export const RunDetail: React.FC<RunDetailProps> = ({ theme }) => {
               </button>
             </div>
           </div>
+
+          {/* Budget Panel */}
+          {noBudget && runId && (
+            <BudgetInitForm runId={runId} isDark={isDark} />
+          )}
+          {hasBudget && budgetQuery.data && (
+            <div className={`border rounded-2xl p-6 space-y-5 transition-all ${
+              isDark ? "bg-zinc-900/50 border-zinc-800/50" : "bg-white border-zinc-200 shadow-sm"
+            }`}>
+              <div className="flex items-center justify-between">
+                <h3 className={`text-sm font-bold ${isDark ? "text-white" : "text-zinc-900"}`}>Budget</h3>
+                {budgetQuery.data.threshold && (
+                  <BudgetStatusBadge threshold={budgetQuery.data.threshold} />
+                )}
+              </div>
+              <BudgetProgressBar budget={budgetQuery.data} isDark={isDark} />
+              {(budgetQuery.data.budget_events?.length ?? 0) > 0 && (
+                <div className="space-y-2">
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Budget Events</span>
+                  <div className="space-y-2">
+                    {budgetQuery.data.budget_events!.map((evt, i) => (
+                      <div key={evt.id ?? i} className={`p-3 border rounded-lg flex items-start justify-between gap-3 ${
+                        isDark ? "bg-zinc-950 border-zinc-800/50" : "bg-zinc-50 border-zinc-200 shadow-sm"
+                      }`}>
+                        <div className="space-y-0.5">
+                          {evt.threshold && <BudgetStatusBadge threshold={evt.threshold} />}
+                          {evt.message && (
+                            <p className="text-[11px] text-zinc-500 mt-1">{evt.message}</p>
+                          )}
+                        </div>
+                        <span className="text-[10px] font-mono text-zinc-500 shrink-0">
+                          {evt.triggered_at ?? "—"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className={`border rounded-2xl p-4 transition-all ${
             isDark ? "bg-zinc-900/50 border-zinc-800/50" : "bg-white border-zinc-200 shadow-sm"
