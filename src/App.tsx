@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Routes, Route, Navigate, Outlet, useLocation, useParams } from "react-router-dom";
 import { Sidebar, TopBar } from "./components/layout/Navigation";
 import { OverviewPage } from "./components/overview/OverviewPage";
@@ -12,6 +12,7 @@ import { ProjectDetailPage } from "./components/projects/ProjectDetailPage";
 import { OrgMembershipsPage } from "./components/memberships/OrgMembershipsPage";
 import { ProjectMembershipsPage } from "./components/memberships/ProjectMembershipsPage";
 import { ProjectApiKeysPage } from "./components/apiKeys/ProjectApiKeysPage";
+import { DlqPage } from "./components/dlq/DlqPage";
 import { AnimatePresence, motion } from "motion/react";
 import { Toaster } from "sonner";
 import { AuthSessionManager } from "./components/auth/AuthSessionManager";
@@ -56,6 +57,15 @@ const GuardedProjectApiKeysPage = ({ theme }: { theme: "dark" | "light" }) => {
   return (
     <AdminRouteGuard scope="project" scopeId={projectId} theme={theme}>
       <ProjectApiKeysPage theme={theme} />
+    </AdminRouteGuard>
+  );
+};
+
+const GuardedDlqPage = ({ theme }: { theme: "dark" | "light" }) => {
+  const { selectedProjectId } = useAppStore();
+  return (
+    <AdminRouteGuard scope="project" scopeId={selectedProjectId} theme={theme}>
+      <DlqPage theme={theme} />
     </AdminRouteGuard>
   );
 };
@@ -192,6 +202,19 @@ const ProtectedRoutes = ({ theme }: { theme: "dark" | "light" }) => {
           }
         />
         <Route
+          path="/dlq"
+          element={
+            <motion.div
+              key="dlq"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+            >
+              <GuardedDlqPage theme={theme} />
+            </motion.div>
+          }
+        />
+        <Route
           path="/ingest"
           element={
             <motion.div
@@ -223,17 +246,55 @@ const ProtectedRoutes = ({ theme }: { theme: "dark" | "light" }) => {
   );
 };
 
+type ThemePreference = "light" | "dark" | "system";
+
+const resolveTheme = (pref: ThemePreference): "dark" | "light" => {
+  if (pref === "system") {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  return pref;
+};
+
+const getStoredThemePref = (): ThemePreference => {
+  const stored = localStorage.getItem("veriops-theme");
+  if (stored === "light" || stored === "dark" || stored === "system") return stored;
+  return "dark";
+};
+
 export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [themePref, setThemePref] = useState<ThemePreference>(getStoredThemePref);
+  const theme = resolveTheme(themePref);
   const location = useLocation();
   const isAuthRoute =
     location.pathname === "/login" ||
     location.pathname === "/bootstrap-first-admin" ||
     location.pathname === "/v1/auth/google/callback";
 
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "dark") {
+      root.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+    }
+  }, [theme]);
+
+  useEffect(() => {
+    if (themePref !== "system") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = () => setThemePref("system"); // re-trigger resolve
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [themePref]);
+
+  const handleThemeChange = (pref: ThemePreference) => {
+    localStorage.setItem("veriops-theme", pref);
+    setThemePref(pref);
+  };
+
   const toggleTheme = () => {
-    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+    handleThemeChange(theme === "dark" ? "light" : "dark");
   };
 
   return (
@@ -246,7 +307,7 @@ export default function App() {
       <AuthSessionManager />
 
       {!isAuthRoute && (
-        <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} theme={theme} />
+        <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} theme={theme} themePref={themePref} onThemeChange={handleThemeChange} />
       )}
 
       <div

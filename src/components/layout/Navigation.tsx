@@ -1,7 +1,8 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Sun,
   Moon,
+  Monitor,
   Layers,
   Search,
   ChevronDown,
@@ -13,6 +14,10 @@ import {
   Terminal,
   Settings,
   LogOut,
+  Keyboard,
+  User,
+  ChevronUp,
+  AlertTriangle,
 } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -21,22 +26,78 @@ import { StatusPill } from "../ui/StatusPill";
 import { CopyButton } from "../ui/CopyButton";
 import { getHealth, getProjects, Project } from "../../lib/api";
 import { DATE_RANGE_LABELS, useAppStore } from "../../store/appStore";
-import { logout } from "../../lib/auth";
+import { logout, useAuthSession } from "../../lib/auth";
 import { resolveSelectedProjectId } from "./projectSelection";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+  DropdownMenuGroup,
+} from "../ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "../ui/dialog";
+
+// --- Keyboard Shortcuts Modal ---
+type ShortcutsModalProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  isDark: boolean;
+};
+
+const SHORTCUTS = [
+  { keys: "\u2318K", label: "Search" },
+  { keys: "\u2318P", label: "Projects" },
+  { keys: "\u2318R", label: "Runs" },
+  { keys: "\u2318,", label: "Settings" },
+];
+
+const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ open, onOpenChange, isDark }) => (
+  <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent className={isDark ? "bg-zinc-950 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-900"}>
+      <DialogHeader>
+        <DialogTitle className={isDark ? "text-white" : "text-zinc-900"}>Keyboard Shortcuts</DialogTitle>
+        <DialogDescription className="text-zinc-500">Quick navigation shortcuts</DialogDescription>
+      </DialogHeader>
+      <div className="space-y-1 mt-2">
+        {SHORTCUTS.map((s) => (
+          <div key={s.keys} className={`flex items-center justify-between px-3 py-2.5 rounded-lg ${isDark ? "hover:bg-zinc-900" : "hover:bg-zinc-50"}`}>
+            <span className={`text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"}`}>{s.label}</span>
+            <kbd className={`px-2 py-0.5 rounded text-xs font-mono font-semibold border ${
+              isDark ? "bg-zinc-900 border-zinc-700 text-zinc-300" : "bg-zinc-100 border-zinc-200 text-zinc-600"
+            }`}>{s.keys}</kbd>
+          </div>
+        ))}
+      </div>
+    </DialogContent>
+  </Dialog>
+);
 
 // --- Sidebar ---
+type ThemePreference = "light" | "dark" | "system";
+
 type SidebarProps = {
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
   theme: "dark" | "light";
+  themePref?: ThemePreference;
+  onThemeChange?: (pref: ThemePreference) => void;
 };
 
-export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, theme }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, theme, themePref = "dark", onThemeChange }) => {
   const navItems = [
     { id: "overview", label: "Overview", icon: LayoutDashboard, path: "/overview" },
     { id: "projects", label: "Projects", icon: FolderKanban, path: "/projects" },
     { id: "runs", label: "Runs", icon: CirclePlay, path: "/runs" },
     { id: "policies", label: "Policies", icon: ShieldCheck, path: "/policies" },
+    { id: "dlq", label: "DLQ", icon: AlertTriangle, path: "/dlq" },
     { id: "ingest", label: "Ingest", icon: Terminal, path: "/ingest" },
     { id: "settings", label: "Settings", icon: Settings, path: "/settings" },
   ];
@@ -44,14 +105,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, theme }) =>
   const isDark = theme === "dark";
   const location = useLocation();
   const navigate = useNavigate();
+  const auth = useAuthSession();
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  const userEmail = auth.user?.email ?? "";
+  const userDisplayName =
+    auth.user?.username ?? (userEmail ? userEmail.split("@")[0] : "User");
+  const userInitials = userDisplayName
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2) || "U";
 
   return (
     <>
+      <ShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} isDark={isDark} />
+
       <aside
         data-ui="sidebar"
         className={`fixed inset-y-0 left-0 z-50 w-64 border-r transition-all duration-300 lg:translate-x-0 ${
-          isDark 
-            ? 'bg-zinc-950 border-zinc-800' 
+          isDark
+            ? 'bg-zinc-950 border-zinc-800'
             : 'bg-white border-zinc-200 shadow-sm'
         } ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
@@ -93,22 +168,114 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, theme }) =>
           </nav>
 
           <div className={`p-4 border-t ${isDark ? 'border-zinc-800' : 'border-zinc-200'}`}>
-            <div className={`flex items-center gap-3 p-2 rounded-lg ${isDark ? 'bg-zinc-900/30' : 'bg-zinc-100/50'}`}>
-              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-[10px] font-bold text-white">
-                JD
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className={`text-xs font-medium truncate ${isDark ? 'text-white' : 'text-zinc-900'}`}>Josh Doe</p>
-                <p className="text-[10px] text-zinc-500 truncate">Pro Plan</p>
-              </div>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${isDark ? 'bg-zinc-900/30 hover:bg-zinc-900/60' : 'bg-zinc-100/50 hover:bg-zinc-100'}`}>
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
+                    {userInitials}
+                  </div>
+                  <div className="flex-1 min-w-0 text-left">
+                    <p className={`text-xs font-medium truncate ${isDark ? 'text-white' : 'text-zinc-900'}`}>{userDisplayName}</p>
+                    <p className="text-[10px] text-zinc-500 truncate">Pro Plan</p>
+                  </div>
+                  <ChevronUp size={14} className="text-zinc-500 shrink-0" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                side="top"
+                align="start"
+                sideOffset={8}
+                className={`w-56 ${isDark ? "bg-zinc-950 border-zinc-800 text-zinc-200" : "bg-white border-zinc-200 text-zinc-900"}`}
+              >
+                {/* Profile header */}
+                <div className="px-3 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
+                      {userInitials}
+                    </div>
+                    <div className="min-w-0">
+                      <p className={`text-sm font-semibold truncate ${isDark ? "text-white" : "text-zinc-900"}`}>{userDisplayName}</p>
+                      <p className="text-[11px] text-zinc-500 truncate">{userEmail}</p>
+                    </div>
+                  </div>
+                  <div className={`mt-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                    isDark ? "bg-blue-500/10 text-blue-400 border-blue-500/20" : "bg-blue-50 text-blue-600 border-blue-200"
+                  }`}>
+                    Pro Plan
+                  </div>
+                </div>
+
+                <DropdownMenuSeparator className={isDark ? "bg-zinc-800" : "bg-zinc-200"} />
+
+                {/* Theme toggle */}
+                <DropdownMenuLabel className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? "text-zinc-500" : "text-zinc-400"}`}>
+                  Theme
+                </DropdownMenuLabel>
+                <DropdownMenuGroup>
+                  <div className={`mx-2 mb-1 flex rounded-lg border p-0.5 ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-zinc-100 border-zinc-200"}`}>
+                    {([
+                      { value: "light" as ThemePreference, icon: Sun, label: "Light" },
+                      { value: "dark" as ThemePreference, icon: Moon, label: "Dark" },
+                      { value: "system" as ThemePreference, icon: Monitor, label: "System" },
+                    ]).map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => onThemeChange?.(opt.value)}
+                        className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1 text-[11px] font-medium rounded-md transition-all ${
+                          themePref === opt.value
+                            ? (isDark ? "bg-zinc-800 text-white" : "bg-white text-zinc-900 shadow-sm")
+                            : "text-zinc-500 hover:text-zinc-300"
+                        }`}
+                      >
+                        <opt.icon size={12} />
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </DropdownMenuGroup>
+
+                <DropdownMenuSeparator className={isDark ? "bg-zinc-800" : "bg-zinc-200"} />
+
+                {/* Menu items */}
+                <DropdownMenuItem
+                  className={`gap-2 text-xs cursor-pointer ${isDark ? "text-zinc-300 focus:bg-zinc-900 focus:text-white" : "text-zinc-700 focus:bg-zinc-100 focus:text-zinc-900"}`}
+                  onClick={() => navigate("/settings")}
+                >
+                  <User size={14} />
+                  Account Settings
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className={`gap-2 text-xs cursor-pointer ${isDark ? "text-zinc-300 focus:bg-zinc-900 focus:text-white" : "text-zinc-700 focus:bg-zinc-100 focus:text-zinc-900"}`}
+                  onClick={() => setShortcutsOpen(true)}
+                >
+                  <Keyboard size={14} />
+                  Keyboard Shortcuts
+                </DropdownMenuItem>
+
+                <DropdownMenuSeparator className={isDark ? "bg-zinc-800" : "bg-zinc-200"} />
+
+                <DropdownMenuItem
+                  className={`gap-2 text-xs cursor-pointer text-rose-500 focus:text-rose-500 ${isDark ? "focus:bg-rose-500/10" : "focus:bg-rose-50"}`}
+                  onClick={async () => {
+                    const result = await logout();
+                    if (!result.serverSessionCleared) {
+                      toast.warning("Server session may still be active.");
+                    }
+                    navigate("/login", { replace: true });
+                  }}
+                >
+                  <LogOut size={14} />
+                  Sign Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </aside>
-      
+
       {isOpen && (
-        <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden" 
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
           onClick={() => setIsOpen(false)}
         />
       )}

@@ -722,3 +722,42 @@ export const setRunBudget = (runId: string, body: SetRunBudgetInput) =>
     method: "POST",
     body: JSON.stringify(body),
   });
+
+// --- DLQ ---
+
+export type DlqMessage = {
+  id: string;
+  event_type: string;
+  error: string;
+  payload?: unknown;
+  created_at: string;
+  retry_count?: number;
+  status?: string;
+};
+
+export type DlqMessagesResponse = {
+  messages: DlqMessage[];
+  total?: number;
+  can_manage_dlq?: boolean;
+  permissions?: string[];
+  capabilities?: { manage_dlq?: boolean };
+};
+
+export type DlqReplayResponse = {
+  replayed: number;
+  failed: number;
+  message_ids?: string[];
+};
+
+export const getDlqMessages = (projectId: string, limit = 50, offset = 0) =>
+  apiFetch<DlqMessagesResponse>(
+    `/v1/projects/${projectId}/dlq?limit=${limit}&offset=${offset}`
+  );
+
+export const replayDlqMessages = (body: { project_id: string; message_ids?: string[]; latest_n?: number }) => {
+  const { project_id, ...rest } = body;
+  return apiFetch<DlqReplayResponse>(`/v1/projects/${project_id}/dlq/replay`, {
+    method: "POST",
+    body: JSON.stringify(rest),
+  });
+};

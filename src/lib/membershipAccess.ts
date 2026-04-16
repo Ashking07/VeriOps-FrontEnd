@@ -60,3 +60,22 @@ export const hasApiKeyManagePermission = (data: {
   }
   return false;
 };
+
+export const hasDlqManagePermission = (data: {
+  can_manage_dlq?: boolean;
+  permissions?: string[];
+  capabilities?: { manage_dlq?: boolean };
+}) => {
+  if (typeof data.can_manage_dlq === "boolean") {
+    return data.can_manage_dlq;
+  }
+  if (typeof data.capabilities?.manage_dlq === "boolean") {
+    return data.capabilities.manage_dlq;
+  }
+  if (Array.isArray(data.permissions)) {
+    return data.permissions.some((permission) =>
+      ["dlq:manage", "dlq:write", "dlq:replay", "project:dlq:write"].includes(permission)
+    );
+  }
+  return false;
+};

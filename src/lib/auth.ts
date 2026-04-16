@@ -7,10 +7,9 @@ export type TokenOut = {
   expires_at: string | number;
 };
 
-export type JwtUserClaims = {
-  sub?: string;
+export type UserProfile = {
+  user_id: string;
   email?: string;
-  name?: string;
   username?: string;
 };
 
@@ -19,7 +18,7 @@ type AuthSnapshot = {
   accessTokenExpiresAtMs: number | null;
   isInitialized: boolean;
   isAuthenticated: boolean;
-  user: JwtUserClaims | null;
+  user: UserProfile | null;
 };
 
 type JsonBody = Record<string, unknown> | string | null;
@@ -38,22 +37,6 @@ export class AuthApiError extends Error {
 
 type RequestExecutor = (accessToken: string | null) => Promise<Response>;
 
-const decodeJwtPayload = (token: string): JwtUserClaims | null => {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return {
-      sub: payload.sub as string | undefined,
-      email: (payload.email ?? payload.e) as string | undefined,
-      name: (payload.name ?? payload.full_name ?? payload.display_name) as string | undefined,
-      username: (payload.username ?? payload.preferred_username) as string | undefined,
-    };
-  } catch {
-    return null;
-  }
-};
-
 const REFRESH_TOKEN_STORAGE_KEY = "veriops-refresh-token";
 const REFRESH_SKEW_MS = 60_000;
 
@@ -62,7 +45,7 @@ let accessTokenExpiresAtMs: number | null = null;
 let cookieSessionAuthenticated = false;
 let initialized = false;
 let refreshInFlight: Promise<boolean> | null = null;
-let userClaims: JwtUserClaims | null = null;
+let userProfile: UserProfile | null = null;
 
 let cachedAuthSnapshot: AuthSnapshot = {
   accessToken: null,
@@ -231,18 +214,48 @@ const setSession = (tokenOut: TokenOut) => {
   accessToken = tokenOut.access_token;
   accessTokenExpiresAtMs = parseExpiresAtMs(tokenOut.expires_at);
   cookieSessionAuthenticated = true;
-  userClaims = decodeJwtPayload(tokenOut.access_token);
   setStoredRefreshToken(tokenOut.refresh_token);
   emit();
+  void loadUserProfile();
 };
 
 export const clearSession = () => {
   accessToken = null;
   accessTokenExpiresAtMs = null;
   cookieSessionAuthenticated = false;
-  userClaims = null;
+  userProfile = null;
   clearStoredRefreshToken();
   emit();
+};
+
+const loadUserProfile = async (): Promise<void> => {
+  try {
+    const response = await withAuthRetry((token) => {
+      const headers = new Headers();
+      if (token) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
+      return fetch(buildUrl("/v1/auth/me"), {
+        method: "GET",
+        headers,
+        credentials: "include",
+      });
+    });
+    if (!response.ok) return;
+    const body = await parseResponseBody(response);
+    if (!body || typeof body !== "object") return;
+    const record = body as Record<string, unknown>;
+    const userId = record.user_id;
+    if (typeof userId !== "string" || !userId) return;
+    userProfile = {
+      user_id: userId,
+      email: typeof record.email === "string" ? record.email : undefined,
+      username: typeof record.username === "string" ? record.username : undefined,
+    };
+    emit();
+  } catch {
+    // swallow: sidebar falls back to a default label
+  }
 };
 
 const probeCookieSession = async (): Promise<boolean> => {
@@ -289,7 +302,8 @@ export const getAuthSnapshot = (): AuthSnapshot => {
     cachedAuthSnapshot.accessToken === accessToken &&
     cachedAuthSnapshot.accessTokenExpiresAtMs === accessTokenExpiresAtMs &&
     cachedAuthSnapshot.isInitialized === initialized &&
-    cachedAuthSnapshot.isAuthenticated === nextIsAuthenticated
+    cachedAuthSnapshot.isAuthenticated === nextIsAuthenticated &&
+    cachedAuthSnapshot.user === userProfile
   ) {
     return cachedAuthSnapshot;
   }
@@ -298,7 +312,7 @@ export const getAuthSnapshot = (): AuthSnapshot => {
     accessToken,
     accessTokenExpiresAtMs,
     isInitialized: initialized,
-    user: userClaims,
+    user: userProfile,
     isAuthenticated: nextIsAuthenticated,
   };
 
@@ -374,6 +388,7 @@ export const completeGoogleCallback = async (search: string) => {
     if (!hasCookieSession) {
       throw new AuthApiError("Google login callback did not establish a session", 401, body);
     }
+    void loadUserProfile();
   }
 
   initialized = true;
@@ -438,10 +453,16 @@ export const initializeAuth = async () => {
   if (refreshToken) {
     const refreshed = await refreshSession();
     if (!refreshed) {
-      await probeCookieSession();
+      const hasCookieSession = await probeCookieSession();
+      if (hasCookieSession) {
+        void loadUserProfile();
+      }
     }
   } else {
-    await probeCookieSession();
+    const hasCookieSession = await probeCookieSession();
+    if (hasCookieSession) {
+      void loadUserProfile();
+    }
   }
 
   initialized = true;
