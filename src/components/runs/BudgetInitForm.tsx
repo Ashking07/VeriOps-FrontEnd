@@ -9,11 +9,25 @@ interface BudgetInitFormProps {
   isDark: boolean;
 }
 
+const isValidHttpsWebhook = (value: string): boolean => {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
 export const BudgetInitForm: React.FC<BudgetInitFormProps> = ({ runId, isDark }) => {
   const queryClient = useQueryClient();
   const [tokenBudget, setTokenBudget] = useState("");
   const [costBudget, setCostBudget] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
+
+  const trimmedWebhook = webhookUrl.trim();
+  const webhookError =
+    trimmedWebhook !== "" && !isValidHttpsWebhook(trimmedWebhook)
+      ? "Webhook URL must start with https://"
+      : null;
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -22,17 +36,15 @@ export const BudgetInitForm: React.FC<BudgetInitFormProps> = ({ runId, isDark })
       return setRunBudget(runId, {
         ...(tokenBudget !== "" && !isNaN(parsedToken) ? { token_budget: parsedToken } : {}),
         ...(costBudget !== "" && !isNaN(parsedCost) ? { cost_budget_usd: parsedCost } : {}),
-        ...(webhookUrl.trim() ? { webhook_url: webhookUrl.trim() } : {}),
+        ...(trimmedWebhook ? { webhook_url: trimmedWebhook } : {}),
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["run-budget", runId] });
       toast.success("Budget configured");
     },
-    onError: (error) => {
-      const msg =
-        error instanceof Error ? error.message : "Failed to set budget";
-      toast.error(msg);
+    onError: () => {
+      toast.error("Failed to set budget");
     },
   });
 
@@ -44,7 +56,10 @@ export const BudgetInitForm: React.FC<BudgetInitFormProps> = ({ runId, isDark })
 
   const labelClass = "text-[10px] font-bold text-zinc-500 uppercase tracking-widest";
 
-  const canSubmit = (tokenBudget !== "" || costBudget !== "") && !mutation.isPending;
+  const canSubmit =
+    (tokenBudget !== "" || costBudget !== "") &&
+    !webhookError &&
+    !mutation.isPending;
 
   return (
     <div
@@ -98,7 +113,11 @@ export const BudgetInitForm: React.FC<BudgetInitFormProps> = ({ runId, isDark })
             value={webhookUrl}
             onChange={(e) => setWebhookUrl(e.target.value)}
             className={inputClass}
+            aria-invalid={webhookError ? true : undefined}
           />
+          {webhookError ? (
+            <p className="text-[11px] text-red-500">{webhookError}</p>
+          ) : null}
         </div>
       </div>
 

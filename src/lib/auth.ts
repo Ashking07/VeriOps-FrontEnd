@@ -7,11 +7,19 @@ export type TokenOut = {
   expires_at: string | number;
 };
 
+export type JwtUserClaims = {
+  sub?: string;
+  email?: string;
+  name?: string;
+  username?: string;
+};
+
 type AuthSnapshot = {
   accessToken: string | null;
   accessTokenExpiresAtMs: number | null;
   isInitialized: boolean;
   isAuthenticated: boolean;
+  user: JwtUserClaims | null;
 };
 
 type JsonBody = Record<string, unknown> | string | null;
@@ -30,6 +38,22 @@ export class AuthApiError extends Error {
 
 type RequestExecutor = (accessToken: string | null) => Promise<Response>;
 
+const decodeJwtPayload = (token: string): JwtUserClaims | null => {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return {
+      sub: payload.sub as string | undefined,
+      email: (payload.email ?? payload.e) as string | undefined,
+      name: (payload.name ?? payload.full_name ?? payload.display_name) as string | undefined,
+      username: (payload.username ?? payload.preferred_username) as string | undefined,
+    };
+  } catch {
+    return null;
+  }
+};
+
 const REFRESH_TOKEN_STORAGE_KEY = "veriops-refresh-token";
 const REFRESH_SKEW_MS = 60_000;
 
@@ -38,12 +62,14 @@ let accessTokenExpiresAtMs: number | null = null;
 let cookieSessionAuthenticated = false;
 let initialized = false;
 let refreshInFlight: Promise<boolean> | null = null;
+let userClaims: JwtUserClaims | null = null;
 
 let cachedAuthSnapshot: AuthSnapshot = {
   accessToken: null,
   accessTokenExpiresAtMs: null,
   isInitialized: false,
   isAuthenticated: false,
+  user: null,
 };
 
 const listeners = new Set<() => void>();
@@ -205,6 +231,7 @@ const setSession = (tokenOut: TokenOut) => {
   accessToken = tokenOut.access_token;
   accessTokenExpiresAtMs = parseExpiresAtMs(tokenOut.expires_at);
   cookieSessionAuthenticated = true;
+  userClaims = decodeJwtPayload(tokenOut.access_token);
   setStoredRefreshToken(tokenOut.refresh_token);
   emit();
 };
@@ -213,6 +240,7 @@ export const clearSession = () => {
   accessToken = null;
   accessTokenExpiresAtMs = null;
   cookieSessionAuthenticated = false;
+  userClaims = null;
   clearStoredRefreshToken();
   emit();
 };
@@ -270,6 +298,7 @@ export const getAuthSnapshot = (): AuthSnapshot => {
     accessToken,
     accessTokenExpiresAtMs,
     isInitialized: initialized,
+    user: userClaims,
     isAuthenticated: nextIsAuthenticated,
   };
 
