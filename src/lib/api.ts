@@ -582,7 +582,7 @@ const apiFetch = async <T>(
 };
 
 export const authApiRequest = <T>(path: string, init?: RequestInit) =>
-  apiFetch<T>(path, init, { includeApiKey: true });
+  apiFetch<T>(path, init, { includeApiKey: false });
 
 export const getHealth = () =>
   apiFetch<HealthResponse>("/health", undefined, {
