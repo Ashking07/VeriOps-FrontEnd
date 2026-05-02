@@ -15,7 +15,6 @@ import {
   LogOut,
   Keyboard,
   User,
-  ChevronUp,
   Inbox,
 } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -45,11 +44,9 @@ import {
 
 // ─── VeriOps Logo ─────────────────────────────────────────────────────────────
 const VeriOpsIcon = () => (
-  <svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="15" cy="15" r="14" fill="#09090b" stroke="#27272a" strokeWidth="1" />
-    <circle cx="15" cy="15" r="9" stroke="#1a3a2a" strokeWidth="1.5" />
-    <circle cx="15" cy="15" r="5" stroke="#22c55e" strokeWidth="1.5" opacity="0.7" />
-    <circle cx="15" cy="15" r="2.5" fill="#4ade80" />
+  <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="16" cy="16" r="15" fill="#0a0a0b" stroke="#3f3f46" strokeWidth="1.5" />
+    <circle cx="24" cy="8" r="3" fill="#22c55e" />
   </svg>
 );
 
@@ -253,7 +250,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, theme, them
                   <p className="text-sm font-medium text-white truncate">{userDisplayName}</p>
                   <p className="text-xs text-zinc-600 truncate">Pro · {projects.length} projects</p>
                 </div>
-                <ChevronUp size={13} className="text-zinc-600 shrink-0" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" sideOffset={4} className="w-56 bg-zinc-950 border-zinc-800 text-zinc-200">
@@ -436,7 +432,7 @@ export const TopBar: React.FC<TopBarProps> = ({ toggleSidebar, theme, toggleThem
         </div>
 
         {/* Role badge */}
-        <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-700 text-xs font-semibold text-zinc-300 px-2 py-1 rounded cursor-pointer hover:bg-zinc-800 transition-colors">
+        <div className="flex items-center gap-1 border border-blue-500 text-xs font-bold text-blue-400 px-2 py-1 rounded cursor-pointer hover:bg-blue-500/10 transition-colors">
           OWNER <ChevronDown size={10} />
         </div>
 
