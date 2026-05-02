@@ -300,7 +300,7 @@ export default function App() {
   return (
     <div
       className={`min-h-screen transition-colors duration-300 ${
-        theme === "dark" ? "bg-zinc-950 text-zinc-200" : "bg-zinc-50 text-zinc-900"
+        theme === "dark" ? "bg-[#080808] text-zinc-200" : "bg-zinc-50 text-zinc-900"
       } font-sans selection:bg-blue-500/30`}
     >
       <Toaster theme={theme} position="bottom-right" closeButton />
@@ -312,7 +312,7 @@ export default function App() {
 
       <div
         className={`flex flex-col min-h-screen transition-all duration-300 ${
-          isAuthRoute ? "" : "lg:pl-64"
+          isAuthRoute ? "" : "lg:pl-60"
         }`}
       >
         {!isAuthRoute && (
@@ -344,37 +344,6 @@ export default function App() {
           </Routes>
         </main>
 
-        {!isAuthRoute && (
-          <footer
-            className={`px-8 py-6 border-t flex flex-col md:flex-row items-center justify-between gap-4 transition-colors duration-300 ${
-              theme === "dark" ? "border-zinc-800" : "border-zinc-200 bg-white"
-            }`}
-          >
-            <div className="flex items-center gap-6">
-              <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">
-                © 2026 VeriOps Inc.
-              </span>
-              <a
-                href="#"
-                className="text-[10px] font-bold text-zinc-500 hover:text-white uppercase tracking-widest transition-colors"
-              >
-                Documentation
-              </a>
-              <a
-                href="#"
-                className="text-[10px] font-bold text-zinc-500 hover:text-white uppercase tracking-widest transition-colors"
-              >
-                Support
-              </a>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                All systems operational
-              </span>
-            </div>
-          </footer>
-        )}
       </div>
     </div>
   );

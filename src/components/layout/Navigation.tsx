@@ -3,7 +3,6 @@ import {
   Sun,
   Moon,
   Monitor,
-  Layers,
   Search,
   ChevronDown,
   Menu,
@@ -17,12 +16,11 @@ import {
   Keyboard,
   User,
   ChevronUp,
-  AlertTriangle,
+  Inbox,
 } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { StatusPill } from "../ui/StatusPill";
 import { CopyButton } from "../ui/CopyButton";
 import { getHealth, getProjects, Project } from "../../lib/api";
 import { DATE_RANGE_LABELS, useAppStore } from "../../store/appStore";
@@ -45,34 +43,42 @@ import {
   DialogDescription,
 } from "../ui/dialog";
 
-// --- Keyboard Shortcuts Modal ---
-type ShortcutsModalProps = {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  isDark: boolean;
-};
+// ─── VeriOps Logo Icon ────────────────────────────────────────────────────────
+const VeriOpsIcon: React.FC<{ size?: number }> = ({ size = 32 }) => (
+  <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="16" cy="16" r="15" fill="#0d0d0d" stroke="#222" strokeWidth="1" />
+    <circle cx="16" cy="16" r="10" stroke="#1a3a2a" strokeWidth="1.5" />
+    <circle cx="16" cy="16" r="6" stroke="#22c55e" strokeWidth="1.5" opacity="0.7" />
+    <circle cx="16" cy="16" r="2.5" fill="#4ade80" />
+    <circle cx="16" cy="16" r="1" fill="white" />
+  </svg>
+);
 
+// ─── Keyboard Shortcuts Modal ─────────────────────────────────────────────────
 const SHORTCUTS = [
-  { keys: "\u2318K", label: "Search" },
-  { keys: "\u2318P", label: "Projects" },
-  { keys: "\u2318R", label: "Runs" },
-  { keys: "\u2318,", label: "Settings" },
+  { keys: "⌘K", label: "Search" },
+  { keys: "⌘P", label: "Projects" },
+  { keys: "⌘R", label: "Runs" },
+  { keys: "⌘,", label: "Settings" },
 ];
 
-const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ open, onOpenChange, isDark }) => (
+const ShortcutsModal: React.FC<{ open: boolean; onOpenChange: (v: boolean) => void }> = ({
+  open,
+  onOpenChange,
+}) => (
   <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className={isDark ? "bg-zinc-950 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-900"}>
+    <DialogContent className="bg-[#111] border-[#222] text-white">
       <DialogHeader>
-        <DialogTitle className={isDark ? "text-white" : "text-zinc-900"}>Keyboard Shortcuts</DialogTitle>
+        <DialogTitle className="text-white">Keyboard Shortcuts</DialogTitle>
         <DialogDescription className="text-zinc-500">Quick navigation shortcuts</DialogDescription>
       </DialogHeader>
       <div className="space-y-1 mt-2">
         {SHORTCUTS.map((s) => (
-          <div key={s.keys} className={`flex items-center justify-between px-3 py-2.5 rounded-lg ${isDark ? "hover:bg-zinc-900" : "hover:bg-zinc-50"}`}>
-            <span className={`text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"}`}>{s.label}</span>
-            <kbd className={`px-2 py-0.5 rounded text-xs font-mono font-semibold border ${
-              isDark ? "bg-zinc-900 border-zinc-700 text-zinc-300" : "bg-zinc-100 border-zinc-200 text-zinc-600"
-            }`}>{s.keys}</kbd>
+          <div key={s.keys} className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-white/5">
+            <span className="text-sm text-zinc-300">{s.label}</span>
+            <kbd className="px-2 py-0.5 rounded text-xs font-mono font-semibold bg-[#1a1a1a] border border-[#333] text-zinc-400">
+              {s.keys}
+            </kbd>
           </div>
         ))}
       </div>
@@ -80,7 +86,7 @@ const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ open, onOpenChange, isD
   </Dialog>
 );
 
-// --- Sidebar ---
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
 type ThemePreference = "light" | "dark" | "system";
 
 type SidebarProps = {
@@ -91,191 +97,270 @@ type SidebarProps = {
   onThemeChange?: (pref: ThemePreference) => void;
 };
 
-export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, theme, themePref = "dark", onThemeChange }) => {
-  const navItems = [
-    { id: "overview", label: "Overview", icon: LayoutDashboard, path: "/overview" },
-    { id: "projects", label: "Projects", icon: FolderKanban, path: "/projects" },
-    { id: "runs", label: "Runs", icon: CirclePlay, path: "/runs" },
-    { id: "policies", label: "Policies", icon: ShieldCheck, path: "/policies" },
-    { id: "dlq", label: "DLQ", icon: AlertTriangle, path: "/dlq" },
-    { id: "ingest", label: "Ingest", icon: Terminal, path: "/ingest" },
-    { id: "settings", label: "Settings", icon: Settings, path: "/settings" },
-  ];
+const NAV_SECTIONS = [
+  {
+    label: "WORKSPACE",
+    items: [
+      { id: "overview",  label: "Overview",     icon: LayoutDashboard, path: "/overview" },
+      { id: "projects",  label: "Projects",     icon: FolderKanban,    path: "/projects" },
+    ],
+  },
+  {
+    label: "OPERATIONS",
+    items: [
+      { id: "runs",      label: "Runs",         icon: CirclePlay,      path: "/runs",     badge: "runs" as const },
+      { id: "policies",  label: "Policies",     icon: ShieldCheck,     path: "/policies" },
+      { id: "ingest",    label: "Ingest",       icon: Terminal,        path: "/ingest" },
+      { id: "dlq",       label: "Dead-letter",  icon: Inbox,           path: "/dlq",      badge: "dlq" as const },
+    ],
+  },
+  {
+    label: "ADMIN",
+    items: [
+      { id: "settings",  label: "Settings",     icon: Settings,        path: "/settings" },
+    ],
+  },
+];
 
-  const isDark = theme === "dark";
+export const Sidebar: React.FC<SidebarProps> = ({
+  isOpen,
+  setIsOpen,
+  theme,
+  themePref = "dark",
+  onThemeChange,
+}) => {
   const location = useLocation();
   const navigate = useNavigate();
   const auth = useAuthSession();
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: getProjects });
+  const { data: health } = useQuery({ queryKey: ["health"], queryFn: getHealth });
 
   const userEmail = auth.user?.email ?? "";
   const userDisplayName =
     auth.user?.username ?? (userEmail ? userEmail.split("@")[0] : "User");
   const userInitials = userDisplayName
     .split(" ")
-    .map((w) => w[0])
+    .map((w: string) => w[0])
     .join("")
     .toUpperCase()
     .slice(0, 2) || "U";
 
+  const isLive = health?.db === "ok";
+
+  const isActive = (path: string) =>
+    location.pathname === path ||
+    (path === "/runs" && location.pathname.startsWith("/runs/")) ||
+    (path === "/projects" && location.pathname.startsWith("/projects/"));
+
   return (
     <>
-      <ShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} isDark={isDark} />
+      <ShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
 
       <aside
         data-ui="sidebar"
-        className={`fixed inset-y-0 left-0 z-50 w-64 border-r transition-all duration-300 lg:translate-x-0 ${
-          isDark
-            ? 'bg-zinc-950 border-zinc-800'
-            : 'bg-white border-zinc-200 shadow-sm'
-        } ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`fixed inset-y-0 left-0 z-50 w-60 flex flex-col bg-[#0d0d0d] border-r border-[#1a1a1a] transition-transform duration-300 lg:translate-x-0 ${
+          isOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
       >
-        <div className="flex flex-col h-full">
-          <div className="p-6">
-            <div className="flex items-center gap-2.5 px-2">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isDark ? 'bg-white' : 'bg-zinc-900'}`}>
-                <div className={`w-4 h-4 rounded-sm rotate-45 ${isDark ? 'bg-zinc-950' : 'bg-white'}`} />
-              </div>
-              <span className={`font-bold text-lg tracking-tight ${isDark ? 'text-white' : 'text-zinc-900'}`}>VeriOps</span>
+        {/* Logo */}
+        <div className="flex items-start gap-2.5 px-4 pt-5 pb-4">
+          <VeriOpsIcon size={32} />
+          <div className="flex flex-col -mt-0.5">
+            <span className="text-[15px] font-bold text-white tracking-tight leading-tight">VeriOps</span>
+            <span className="text-[9px] font-semibold text-zinc-600 tracking-[0.15em] uppercase">
+              Agent Observability
+            </span>
+          </div>
+        </div>
+
+        {/* Search */}
+        <div className="px-3 mb-4">
+          <button
+            onClick={() => setShortcutsOpen(true)}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-[#111] border border-[#222] text-zinc-500 hover:border-[#333] hover:text-zinc-400 transition-colors text-xs"
+          >
+            <Search size={12} />
+            <span className="flex-1 text-left">Search or run command...</span>
+            <kbd className="px-1.5 py-0.5 rounded bg-[#1a1a1a] border border-[#2a2a2a] text-[9px] font-mono text-zinc-600">
+              ⌘K
+            </kbd>
+          </button>
+        </div>
+
+        {/* Nav Sections */}
+        <nav className="flex-1 px-2 overflow-y-auto space-y-4">
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.label}>
+              <p className="px-3 mb-1 text-[10px] font-semibold text-zinc-600 tracking-[0.1em] uppercase">
+                {section.label}
+              </p>
+              {section.items.map((item) => {
+                const active = isActive(item.path);
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      navigate(item.path);
+                      if (window.innerWidth < 1024) setIsOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-[7px] text-[13px] font-medium rounded-md transition-all relative ${
+                      active
+                        ? "text-white bg-white/[0.05]"
+                        : "text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.03]"
+                    }`}
+                  >
+                    {active && (
+                      <span className="absolute left-0 top-1 bottom-1 w-[2px] rounded-full bg-blue-500" />
+                    )}
+                    <item.icon size={14} className={active ? "text-white" : "text-zinc-600"} />
+                    <span className="flex-1 text-left">{item.label}</span>
+                    {"badge" in item && item.badge === "dlq" && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-950 text-red-400">
+                        5
+                      </span>
+                    )}
+                    {"badge" in item && item.badge === "runs" && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-zinc-800 text-zinc-400">
+                        128
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+
+        {/* System Panel */}
+        <div className="mx-3 mb-3 rounded-md border border-[#1e1e1e] bg-[#0a0a0a] p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-semibold text-zinc-600 tracking-[0.1em] uppercase">System</span>
+            <div className="flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${isLive ? "bg-emerald-500" : "bg-zinc-600"}`} />
+              <span className={`text-[10px] font-semibold ${isLive ? "text-emerald-500" : "text-zinc-500"}`}>
+                {isLive ? "LIVE" : "DOWN"}
+              </span>
             </div>
           </div>
+          <div className="space-y-1">
+            {[
+              { label: "Ingest", value: "24ns" },
+              { label: "Queue",  value: "12" },
+              { label: "DLQ",    value: "5", red: true },
+            ].map(({ label, value, red }) => (
+              <div key={label} className="flex items-center justify-between">
+                <span className="text-[11px] text-zinc-600">{label}</span>
+                <span className={`text-[11px] font-mono font-medium ${red ? "text-red-400" : "text-zinc-400"}`}>
+                  {value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
 
-          <nav className="flex-1 px-4 space-y-1">
-            {navItems.map((item) => {
-              const isActive =
-                location.pathname === item.path ||
-                (item.path === "/runs" && location.pathname.startsWith("/runs/")) ||
-                (item.path === "/projects" && location.pathname.startsWith("/projects/"));
-              return (
-              <button
-                key={item.id}
-                onClick={() => {
-                  navigate(item.path);
-                  if (window.innerWidth < 1024) {
-                    setIsOpen(false);
-                  }
-                }}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-sm font-medium ${
-                  isActive
-                    ? (isDark ? 'bg-zinc-900 text-white shadow-sm ring-1 ring-white/10' : 'bg-zinc-100 text-zinc-900 shadow-sm ring-1 ring-zinc-200')
-                    : (isDark ? 'text-zinc-400 hover:text-white hover:bg-zinc-900/50' : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100/50')
-                }`}
-              >
-                <item.icon size={18} />
-                {item.label}
+        {/* User Profile */}
+        <div className="border-t border-[#1a1a1a]">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="w-full flex items-center gap-2.5 px-4 py-3 hover:bg-white/[0.03] transition-colors">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center text-[11px] font-bold text-white shrink-0">
+                  {userInitials}
+                </div>
+                <div className="flex-1 min-w-0 text-left">
+                  <p className="text-[13px] font-medium text-white truncate leading-tight">{userDisplayName}</p>
+                  <p className="text-[11px] text-zinc-600 truncate">Pro · {projects.length} projects</p>
+                </div>
+                <ChevronUp size={13} className="text-zinc-600 shrink-0" />
               </button>
-            )})}
-          </nav>
-
-          <div className={`p-4 border-t ${isDark ? 'border-zinc-800' : 'border-zinc-200'}`}>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${isDark ? 'bg-zinc-900/30 hover:bg-zinc-900/60' : 'bg-zinc-100/50 hover:bg-zinc-100'}`}>
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              side="top"
+              align="start"
+              sideOffset={4}
+              className="w-56 bg-[#111] border-[#222] text-zinc-200"
+            >
+              <div className="px-3 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center text-[11px] font-bold text-white shrink-0">
                     {userInitials}
                   </div>
-                  <div className="flex-1 min-w-0 text-left">
-                    <p className={`text-xs font-medium truncate ${isDark ? 'text-white' : 'text-zinc-900'}`}>{userDisplayName}</p>
-                    <p className="text-[10px] text-zinc-500 truncate">Pro Plan</p>
-                  </div>
-                  <ChevronUp size={14} className="text-zinc-500 shrink-0" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                side="top"
-                align="start"
-                sideOffset={8}
-                className={`w-56 ${isDark ? "bg-zinc-950 border-zinc-800 text-zinc-200" : "bg-white border-zinc-200 text-zinc-900"}`}
-              >
-                {/* Profile header */}
-                <div className="px-3 py-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
-                      {userInitials}
-                    </div>
-                    <div className="min-w-0">
-                      <p className={`text-sm font-semibold truncate ${isDark ? "text-white" : "text-zinc-900"}`}>{userDisplayName}</p>
-                      <p className="text-[11px] text-zinc-500 truncate">{userEmail}</p>
-                    </div>
-                  </div>
-                  <div className={`mt-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                    isDark ? "bg-blue-500/10 text-blue-400 border-blue-500/20" : "bg-blue-50 text-blue-600 border-blue-200"
-                  }`}>
-                    Pro Plan
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-white truncate">{userDisplayName}</p>
+                    <p className="text-[11px] text-zinc-500 truncate">{userEmail}</p>
                   </div>
                 </div>
+                <div className="mt-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  Pro Plan
+                </div>
+              </div>
 
-                <DropdownMenuSeparator className={isDark ? "bg-zinc-800" : "bg-zinc-200"} />
+              <DropdownMenuSeparator className="bg-[#222]" />
 
-                {/* Theme toggle */}
-                <DropdownMenuLabel className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? "text-zinc-500" : "text-zinc-400"}`}>
-                  Theme
-                </DropdownMenuLabel>
-                <DropdownMenuGroup>
-                  <div className={`mx-2 mb-1 flex rounded-lg border p-0.5 ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-zinc-100 border-zinc-200"}`}>
-                    {([
-                      { value: "light" as ThemePreference, icon: Sun, label: "Light" },
-                      { value: "dark" as ThemePreference, icon: Moon, label: "Dark" },
-                      { value: "system" as ThemePreference, icon: Monitor, label: "System" },
-                    ]).map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => onThemeChange?.(opt.value)}
-                        className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1 text-[11px] font-medium rounded-md transition-all ${
-                          themePref === opt.value
-                            ? (isDark ? "bg-zinc-800 text-white" : "bg-white text-zinc-900 shadow-sm")
-                            : "text-zinc-500 hover:text-zinc-300"
-                        }`}
-                      >
-                        <opt.icon size={12} />
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </DropdownMenuGroup>
+              <DropdownMenuLabel className="text-[10px] font-bold uppercase tracking-widest text-zinc-600">
+                Theme
+              </DropdownMenuLabel>
+              <DropdownMenuGroup>
+                <div className="mx-2 mb-1 flex rounded-lg border border-[#222] bg-[#0d0d0d] p-0.5">
+                  {(
+                    [
+                      { value: "light" as ThemePreference, icon: Sun,     label: "Light"  },
+                      { value: "dark"  as ThemePreference, icon: Moon,    label: "Dark"   },
+                      { value: "system"as ThemePreference, icon: Monitor, label: "System" },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => onThemeChange?.(opt.value)}
+                      className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition-all ${
+                        themePref === opt.value
+                          ? "bg-[#1e1e1e] text-white"
+                          : "text-zinc-500 hover:text-zinc-300"
+                      }`}
+                    >
+                      <opt.icon size={11} />
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </DropdownMenuGroup>
 
-                <DropdownMenuSeparator className={isDark ? "bg-zinc-800" : "bg-zinc-200"} />
+              <DropdownMenuSeparator className="bg-[#222]" />
 
-                {/* Menu items */}
-                <DropdownMenuItem
-                  className={`gap-2 text-xs cursor-pointer ${isDark ? "text-zinc-300 focus:bg-zinc-900 focus:text-white" : "text-zinc-700 focus:bg-zinc-100 focus:text-zinc-900"}`}
-                  onClick={() => navigate("/settings")}
-                >
-                  <User size={14} />
-                  Account Settings
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className={`gap-2 text-xs cursor-pointer ${isDark ? "text-zinc-300 focus:bg-zinc-900 focus:text-white" : "text-zinc-700 focus:bg-zinc-100 focus:text-zinc-900"}`}
-                  onClick={() => setShortcutsOpen(true)}
-                >
-                  <Keyboard size={14} />
-                  Keyboard Shortcuts
-                </DropdownMenuItem>
+              <DropdownMenuItem
+                className="gap-2 text-xs cursor-pointer text-zinc-300 focus:bg-white/5 focus:text-white"
+                onClick={() => navigate("/settings")}
+              >
+                <User size={13} /> Account Settings
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="gap-2 text-xs cursor-pointer text-zinc-300 focus:bg-white/5 focus:text-white"
+                onClick={() => setShortcutsOpen(true)}
+              >
+                <Keyboard size={13} /> Keyboard Shortcuts
+              </DropdownMenuItem>
 
-                <DropdownMenuSeparator className={isDark ? "bg-zinc-800" : "bg-zinc-200"} />
+              <DropdownMenuSeparator className="bg-[#222]" />
 
-                <DropdownMenuItem
-                  className={`gap-2 text-xs cursor-pointer text-rose-500 focus:text-rose-500 ${isDark ? "focus:bg-rose-500/10" : "focus:bg-rose-50"}`}
-                  onClick={async () => {
-                    const result = await logout();
-                    if (!result.serverSessionCleared) {
-                      toast.warning("Server session may still be active.");
-                    }
-                    navigate("/login", { replace: true });
-                  }}
-                >
-                  <LogOut size={14} />
-                  Sign Out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+              <DropdownMenuItem
+                className="gap-2 text-xs cursor-pointer text-rose-500 focus:text-rose-400 focus:bg-rose-500/10"
+                onClick={async () => {
+                  const result = await logout();
+                  if (!result.serverSessionCleared) toast.warning("Server session may still be active.");
+                  navigate("/login", { replace: true });
+                }}
+              >
+                <LogOut size={13} /> Sign Out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </aside>
 
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40 lg:hidden"
           onClick={() => setIsOpen(false)}
         />
       )}
@@ -283,7 +368,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, theme, them
   );
 };
 
-// --- Topbar ---
+// ─── TopBar ───────────────────────────────────────────────────────────────────
 type TopBarProps = {
   toggleSidebar: () => void;
   toggleTheme: () => void;
@@ -291,35 +376,32 @@ type TopBarProps = {
 };
 
 const maskKey = (key: string) => {
-  if (key.length <= 8) {
-    return `${key.slice(0, 2)}...`;
-  }
-  return `${key.slice(0, 6)}...${key.slice(-3)}`;
+  if (key.length <= 8) return `${key.slice(0, 2)}...`;
+  return `${key.slice(0, 8)}...${key.slice(-3)}`;
+};
+
+const DATE_LABELS: Record<string, string> = {
+  "24h": "Last 24h",
+  "7d":  "7d",
+  "30d": "30d",
 };
 
 export const TopBar: React.FC<TopBarProps> = ({ toggleSidebar, theme, toggleTheme }) => {
-  const isDark = theme === "dark";
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchQuery = searchParams.get("q") ?? "";
-  const { selectedProjectId, setSelectedProjectId, dateRange, setDateRange } =
-    useAppStore();
+  const { selectedProjectId, setSelectedProjectId, dateRange, setDateRange } = useAppStore();
 
   const { data: projects = [], isError: projectsError } = useQuery({
     queryKey: ["projects"],
     queryFn: getProjects,
   });
 
-  const { data: health } = useQuery({
-    queryKey: ["health"],
-    queryFn: getHealth,
-  });
+  const { data: health } = useQuery({ queryKey: ["health"], queryFn: getHealth });
 
   useEffect(() => {
-    const nextSelectedProjectId = resolveSelectedProjectId(projects, selectedProjectId);
-    if (nextSelectedProjectId !== selectedProjectId) {
-      setSelectedProjectId(nextSelectedProjectId);
-    }
+    const next = resolveSelectedProjectId(projects, selectedProjectId);
+    if (next !== selectedProjectId) setSelectedProjectId(next);
   }, [projects, selectedProjectId, setSelectedProjectId]);
 
   const env = import.meta.env as Record<string, string | boolean | undefined>;
@@ -333,161 +415,122 @@ export const TopBar: React.FC<TopBarProps> = ({ toggleSidebar, theme, toggleThem
     (env.NEXT_PUBLIC_ENV as string | undefined) ??
     "Local Dev";
 
+  const selectedProject = projects.find((p: Project) => p.id === selectedProjectId);
+  const isApiOk = !health || health.db !== "degraded";
+
   return (
     <header
       data-ui="topbar"
-      className={`h-14 border-b transition-all duration-300 sticky top-0 z-30 px-4 flex items-center justify-between ${
-        isDark
-          ? 'border-zinc-800 bg-zinc-950/80 backdrop-blur-md'
-          : 'border-zinc-200 bg-white/80 backdrop-blur-md'
-      }`}
+      className="h-[46px] border-b border-[#1a1a1a] bg-[#0d0d0d] sticky top-0 z-30 px-4 flex items-center gap-3"
     >
-      <div className="flex items-center gap-4 flex-1">
-        <button 
-          onClick={toggleSidebar}
-          className={`lg:hidden p-2 transition-colors ${isDark ? 'text-zinc-400 hover:text-white' : 'text-zinc-500 hover:text-zinc-900'}`}
+      {/* Mobile hamburger */}
+      <button
+        onClick={toggleSidebar}
+        className="lg:hidden p-1.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+      >
+        <Menu size={18} />
+      </button>
+
+      {/* Project selector */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        <div className="w-5 h-5 rounded bg-[#1a1a1a] flex items-center justify-center">
+          <FolderKanban size={11} className="text-zinc-500" />
+        </div>
+        <select
+          value={selectedProjectId ?? ""}
+          onChange={(e) => setSelectedProjectId(e.target.value)}
+          className="text-[13px] font-medium bg-transparent text-zinc-200 focus:outline-none cursor-pointer hover:text-white transition-colors"
         >
-          <Menu size={20} />
-        </button>
-        
-        <div className="flex items-center gap-2 group">
-          <div className={`w-6 h-6 rounded flex items-center justify-center ${isDark ? 'bg-zinc-800' : 'bg-zinc-100'}`}>
-            <Layers size={14} className={isDark ? 'text-zinc-400' : 'text-zinc-500'} />
-          </div>
-          <select
-            value={selectedProjectId ?? ""}
-            onChange={(event) => setSelectedProjectId(event.target.value)}
-            className={`text-sm font-medium bg-transparent focus:outline-none ${
-              isDark ? "text-white" : "text-zinc-900"
-            }`}
-          >
-            {projects.length === 0 && (
-              <option value="" key="no-projects">
-                {projectsError ? "Failed to load projects" : "No projects"}
-              </option>
-            )}
-            {projects.map((project: Project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-          <ChevronDown size={14} className="text-zinc-500" />
-        </div>
-
-        <div className={`hidden md:flex items-center gap-1 border rounded-lg p-0.5 ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-200'}`}>
-          {Object.entries(DATE_RANGE_LABELS).map(([value, label]) => (
-            <button 
-              key={value}
-              onClick={() => setDateRange(value as "24h" | "7d" | "30d")}
-              className={`px-3 py-1 text-[11px] font-medium rounded-md transition-all ${
-                dateRange === value 
-                  ? (isDark ? 'bg-zinc-800 text-white' : 'bg-white text-zinc-900 shadow-sm') 
-                  : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              {label}
-            </button>
+          {projects.length === 0 && (
+            <option value="">{projectsError ? "Failed to load" : "No projects"}</option>
+          )}
+          {projects.map((p: Project) => (
+            <option key={p.id} value={p.id} className="bg-[#111]">
+              {p.name}
+            </option>
           ))}
-        </div>
-
-        <div className="hidden lg:flex relative flex-1 max-w-md mx-4">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={14} />
-          <input 
-            type="text" 
-            placeholder="Search runs, steps, or tools..."
-            value={searchQuery}
-            onChange={(event) => {
-              const next = event.target.value;
-              setSearchParams((params) => {
-                const nextParams = new URLSearchParams(params);
-                if (next) {
-                  nextParams.set("q", next);
-                } else {
-                  nextParams.delete("q");
-                }
-                return nextParams;
-              });
-            }}
-            className={`w-full border rounded-lg py-1.5 pl-9 pr-4 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition-all ${
-              isDark 
-                ? 'bg-zinc-900/50 border-zinc-800 text-white' 
-                : 'bg-zinc-100/50 border-zinc-200 text-zinc-900'
-            }`}
-          />
-        </div>
+        </select>
+        <ChevronDown size={12} className="text-zinc-600" />
       </div>
 
-      <div className="flex items-center gap-3">
+      {/* Time range tabs */}
+      <div className="hidden md:flex items-center gap-0.5 bg-[#111] border border-[#222] rounded-md p-0.5">
+        {Object.entries(DATE_LABELS).map(([value, label]) => (
+          <button
+            key={value}
+            onClick={() => setDateRange(value as "24h" | "7d" | "30d")}
+            className={`px-2.5 py-1 text-[11px] font-medium rounded transition-all ${
+              dateRange === value
+                ? "bg-[#1e1e1e] text-white"
+                : "text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Search */}
+      <div className="hidden lg:flex flex-1 relative max-w-xs">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600" size={12} />
+        <input
+          type="text"
+          placeholder="Search runs, steps..."
+          value={searchQuery}
+          onChange={(e) => {
+            const v = e.target.value;
+            setSearchParams((p) => {
+              const n = new URLSearchParams(p);
+              v ? n.set("q", v) : n.delete("q");
+              return n;
+            });
+          }}
+          className="w-full bg-[#111] border border-[#222] rounded-md py-1.5 pl-8 pr-3 text-[12px] text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-[#333] transition-colors"
+        />
+      </div>
+
+      {/* Spacer */}
+      <div className="flex-1" />
+
+      {/* Right cluster */}
+      <div className="flex items-center gap-2">
+        {/* Theme toggle */}
         <button
           onClick={toggleTheme}
-          className={`p-2 rounded-lg border transition-all ${
-            isDark 
-              ? 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white' 
-              : 'bg-zinc-100 border-zinc-200 text-zinc-500 hover:text-zinc-900'
-          }`}
+          className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition-all"
+          title="Toggle theme"
         >
-          {isDark ? <Sun size={16} /> : <Moon size={16} />}
+          {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
         </button>
 
-        <button
-          onClick={async () => {
-            const result = await logout();
-            if (!result.serverSessionCleared) {
-              toast.warning(
-                "Server session may still be active. Backend should clear auth cookies on logout."
-              );
-            }
-            navigate("/login", { replace: true });
-          }}
-          className={`p-2 rounded-lg border transition-all ${
-            isDark
-              ? "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white"
-              : "bg-zinc-100 border-zinc-200 text-zinc-500 hover:text-zinc-900"
-          }`}
-          aria-label="Log out"
-        >
-          <LogOut size={16} />
-        </button>
+        {/* ENV badge */}
+        <div className="hidden xl:flex items-center gap-1.5">
+          <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-widest">ENV</span>
+          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/20">
+            {environment}
+          </span>
+        </div>
 
-        <div className={`hidden xl:flex items-center gap-3 pr-4 border-r ${isDark ? 'border-zinc-800' : 'border-zinc-200'}`}>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Env</span>
-            <div className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-              isDark 
-                ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' 
-                : 'bg-amber-100 text-amber-700 border-amber-200'
-            }`}>
-              {environment}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-             <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">API</span>
-             <div
-               className={`flex items-center gap-1.5 border px-2 py-1 rounded transition-colors group ${
-                 isDark
-                   ? "bg-zinc-900 border-zinc-800 hover:bg-zinc-800"
-                   : "bg-zinc-100 border-zinc-200 hover:bg-zinc-200"
-               }`}
-             >
-               <span className={`text-[10px] font-mono ${isDark ? "text-zinc-400" : "text-zinc-600"}`}>
-                 {maskedKey}
-               </span>
-               <CopyButton
-                 value={apiKey}
-                 copiedMessage="Copied"
-                 iconSize={10}
-                 className="text-zinc-500 group-hover:text-zinc-400"
-               />
-             </div>
+        {/* API key */}
+        <div className="hidden xl:flex items-center gap-1.5">
+          <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-widest">API</span>
+          <div className="flex items-center gap-1.5 bg-[#111] border border-[#222] px-2 py-1 rounded hover:border-[#333] transition-colors">
+            <span className="text-[11px] font-mono text-zinc-400">{maskedKey}</span>
+            <CopyButton value={apiKey} copiedMessage="Copied" iconSize={10} className="text-zinc-600 hover:text-zinc-400" />
           </div>
         </div>
-        
-        <StatusPill
-          status={health?.db === "degraded" ? "degraded" : "healthy"}
-          label={health?.db === "degraded" ? "DB Degraded" : "API Ok"}
-          className="bg-transparent border-none text-[10px]"
-        />
+
+        {/* Owner / role dropdown */}
+        <button className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-600/15 border border-blue-500/20 text-blue-400 text-[11px] font-semibold hover:bg-blue-600/20 transition-colors">
+          OWNER
+          <ChevronDown size={10} />
+        </button>
+
+        {/* API status */}
+        <div className={`flex items-center gap-1.5 text-[11px] font-medium ${isApiOk ? "text-emerald-500" : "text-red-400"}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${isApiOk ? "bg-emerald-500" : "bg-red-400"}`} />
+          {isApiOk ? "API Ok" : "API Down"}
+        </div>
       </div>
     </header>
   );
